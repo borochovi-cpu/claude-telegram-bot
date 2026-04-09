@@ -1,5 +1,7 @@
 import os
 import logging
+import time
+import requests
 from dotenv import load_dotenv
 import anthropic
 from telegram import Update
@@ -11,12 +13,20 @@ logging.basicConfig(level=logging.INFO)
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-PORT = int(os.getenv("PORT", "8443"))
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 conversations: dict[int, list] = {}
+
+def clear_telegram_session():
+    """Delete webhook and close any existing sessions before starting."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook"
+    try:
+        r = requests.post(url, json={"drop_pending_updates": True}, timeout=10)
+        print(f"deleteWebhook: {r.json()}")
+    except Exception as e:
+        print(f"deleteWebhook error: {e}")
+    time.sleep(3)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -58,22 +68,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"שגיאה: {e}")
 
 def main():
+    clear_telegram_session()
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    if WEBHOOK_URL:
-        print(f"Starting webhook on port {PORT}")
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            webhook_url=WEBHOOK_URL,
-            drop_pending_updates=True,
-        )
-    else:
-        print("Starting polling...")
-        app.run_polling(drop_pending_updates=True)
+    print("Bot is running...")
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
