@@ -1,5 +1,5 @@
 import os
-import asyncio
+import logging
 from dotenv import load_dotenv
 import anthropic
 from telegram import Update
@@ -7,12 +7,15 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, fil
 
 load_dotenv()
 
+logging.basicConfig(level=logging.INFO)
+
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+PORT = int(os.getenv("PORT", "8443"))
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-# שמירת היסטוריית שיחה לכל משתמש
 conversations: dict[int, list] = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -45,7 +48,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = response.content[0].text
         conversations[user_id].append({"role": "assistant", "content": reply})
 
-        # טלגרם מגביל הודעות ל-4096 תווים
         if len(reply) > 4096:
             for i in range(0, len(reply), 4096):
                 await update.message.reply_text(reply[i:i+4096])
@@ -56,14 +58,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"שגיאה: {e}")
 
 def main():
-    import time
-    time.sleep(5)  # Wait for previous instance to fully stop
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).drop_pending_updates(True).build()
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("Bot is running...")
-    app.run_polling(drop_pending_updates=True, allowed_updates=["message"])
+
+    if WEBHOOK_URL:
+        print(f"Starting webhook on port {PORT}")
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            webhook_url=WEBHOOK_URL,
+            drop_pending_updates=True,
+        )
+    else:
+        print("Starting polling...")
+        app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
